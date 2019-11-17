@@ -10,6 +10,8 @@
 
 using namespace std;
 
+#define SELF_ROOT -1
+
 static int proc = -1, numProcs = -1;
 static MPI_Datatype mpiEdgeType;
 
@@ -32,23 +34,25 @@ void createMpiEdgeType() {
 
 /* Forest of vertices represented by a disjoint-set structure.
  * Each index is a vertice, and the value is its parent.
- * A vertice with itself as value means it's its forest's root.
+ * A vertice with value SELF_ROOT means it's its forest's root.
  * Rank is an optional property for each vertice to optimize performance.
  */
 struct Forest {
-    unique_ptr<int[]> parents;
+    vector<int> parents;
     vector<int> ranks;
 
     Forest(int nVertices) {
-        parents = make_unique<int[]>(nVertices);
+        parents = vector<int>(nVertices, SELF_ROOT);
         ranks = vector<int>(nVertices, 0);
     }
 
     int find(int v) {
-        if (parents[v] != v) {
+        if (parents[v] != SELF_ROOT) {
             parents[v] = find(parents[v]);
+            return parents[v];
+        } else {
+            return v;
         }
-        return parents[v];
     }
 
     void merge(int v1, int v2) {
@@ -74,6 +78,10 @@ struct Graph {
     int nVerts = 0;
     int nEdges = 0;
     unique_ptr<Edge[]> edges;
+
+    Graph() {}
+
+    Graph(int nVerts) : nVerts(nVerts) {}
 
     void read(const string &filename) {
         ifstream ifs(filename);
@@ -123,6 +131,43 @@ void distributeEdges(const Graph &g, Edge *localEdges, int *nLocalEdges) {
     }
 }
 
+void syncClosestEdges(const Graph &g, unique_ptr<Edge[]> &closestEdges) {
+    Edge *closestEdgesRecvd = new Edge[g.nVerts];
+    // iteratively get all local edges to proc 0
+    for (int iter = 1; iter < numProcs; iter *= 2) {
+        for (int currProc = 0; currProc < numProcs; currProc++) {
+            if (currProc % iter == 0) {
+                int dest = currProc - iter;
+                MPI_Send(&(closestEdges[0]), g.nVerts, mpiEdgeType, dest, 0, MPI_COMM_WORLD);
+            } else if (currProc % (2 * iter) == 0) {
+                int sender = currProc + iter;
+                if (sender < numProcs) {
+                    MPI_Recv(closestEdgesRecvd, g.nVerts, mpiEdgeType, sender, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+                    // combine results with own closest edges
+                    for (int v = 0; v < g.nVerts; v++) {
+                        if (closestEdgesRecvd[v].weight < closestEdges[v].weight) {
+                            closestEdges[v] = closestEdgesRecvd[v];
+                        }
+                    }
+                }
+            }
+        }
+    }
+    // send global closest edges to all processes
+    MPI_Bcast(&(closestEdges[0]), g.nVerts, mpiEdgeType, 0, MPI_COMM_WORLD);
+    delete[] closestEdgesRecvd;
+}
+
+void printResults(const Graph &msf, const double readEndTime, const double endTime) {
+    printf("P%d: Result computed in %f seconds\n", proc, endTime - readEndTime);
+    printf("P%d: Minimum Spanning Forest (MSF) has %d vertices and %d edges\n", proc, msf.nVerts, msf.nEdges);
+    double weight = 0.0;
+    for (int e = 0; e < msf.nEdges; e++) {
+        weight += msf.edges[e].weight;
+    }
+    printf("P%d: MSF weight: %f\n", proc, weight);
+}
+
 int main(int argc, char *argv[]) {
     int  namelen;
     char processor_name[MPI_MAX_PROCESSOR_NAME];
@@ -142,7 +187,8 @@ int main(int argc, char *argv[]) {
         startTime = MPI_Wtime();
     }
     Graph g;
-    Graph msf; // minimum spanning forest
+    Forest forest(g.nVerts);
+
     if (proc == 0) {
         g.read(argv[1]);
         readEndTime = MPI_Wtime();
@@ -151,23 +197,54 @@ int main(int argc, char *argv[]) {
     }
     MPI_Bcast(&g.nVerts, 1, MPI_INT, 0, MPI_COMM_WORLD);
     MPI_Bcast(&g.nEdges, 1, MPI_INT, 0, MPI_COMM_WORLD);
-
-    Forest forest(g.nVerts);
+    Graph msf(g.nVerts); // minimum spanning forest
 
     int nLocalEdges = (g.nEdges + numProcs - 1) / numProcs;
-    Edge *localEdges = (Edge *) malloc(nLocalEdges * sizeof(Edge));
+    Edge *localEdges = new Edge[nLocalEdges];
     distributeEdges(g, localEdges, &nLocalEdges);
 
-    bool edgesFoundBefore = true;
-    while (edgesFoundBefore) {
-        edgesFoundBefore = false;
+    auto closestEdges = make_unique<Edge[]>(g.nVerts);
+    bool edgesFound = true;
+
+    while (msf.nEdges < g.nVerts - 1 && edgesFound) {
+        edgesFound = false;
+        for (int v = 0; v < g.nVerts; v++) {
+            closestEdges[v].weight = numeric_limits<double>::max();
+        }
+        for (int e = 0; e < nLocalEdges; e++) {
+            int roots[2] = { forest.find(localEdges[e].from),
+                            forest.find(localEdges[e].to) };
+            if (roots[0] != roots[1]) { // different tree
+                for (int r = 0; r < 2; r++) {
+                    if (localEdges[roots[r]].weight < closestEdges[roots[r]].weight) {
+                        closestEdges[roots[r]] = localEdges[roots[r]];
+                    }
+                }
+            }
+        }
+
+        syncClosestEdges(g, closestEdges);
+
+        for (int v = 0; v < g.nVerts; v++) {
+            const auto e = closestEdges[v];
+            // if edge exists and it unites different sets
+            if (e.weight < numeric_limits<double>::max()
+                    && forest.find(e.from) != forest.find(e.to)) {
+                edgesFound = true; // continue loop as we may find more
+                if (proc == 0) {
+                    msf.edges[msf.nEdges] = e;
+                }
+                forest.merge(e.from, e.to);
+            }
+        }
     }
 
     if (proc == 0) {
         endTime = MPI_Wtime();
-        printf("P%d: Result computed in %f seconds\n", proc, endTime - readEndTime);
+        printResults(msf, readEndTime, endTime);
     }
     
+    delete[] localEdges;
     MPI_Type_free(&mpiEdgeType);
     MPI_Finalize();
 
