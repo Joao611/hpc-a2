@@ -112,10 +112,15 @@ void handleUsage(int argc) {
     }
 }
 
-void distributeEdges(const Graph &g, Edge *localEdges, int nLocalEdges) {
-    MPI_Scatter(&(g.edges[0]), nLocalEdges, mpiEdgeType,
-            localEdges, nLocalEdges, mpiEdgeType,
+void distributeEdges(const Graph &g, Edge *localEdges, int *nLocalEdges) {
+    printf("P%d: Scattering %d edges in %d chunks\n", proc, g.nEdges, *nLocalEdges);
+    MPI_Scatter(&(g.edges[0]), *nLocalEdges, mpiEdgeType,
+            localEdges, *nLocalEdges, mpiEdgeType,
             0, MPI_COMM_WORLD);
+    // If |E| isn't a multiple of numProcs, correct the number of edges for the last process.
+    if (proc == numProcs - 1 && g.nEdges % *nLocalEdges != 0) {
+        *nLocalEdges = g.nEdges % *nLocalEdges;
+    }
 }
 
 int main(int argc, char *argv[]) {
@@ -123,10 +128,11 @@ int main(int argc, char *argv[]) {
     char processor_name[MPI_MAX_PROCESSOR_NAME];
 
     MPI_Init(&argc, &argv);
-    MPI_Get_processor_name(processor_name, &namelen);
-    printf("Process %d on %s\n", proc, processor_name);
     MPI_Comm_size(MPI_COMM_WORLD, &numProcs);
     MPI_Comm_rank(MPI_COMM_WORLD, &proc);
+    MPI_Get_processor_name(processor_name, &namelen);
+    printf("Process %d on %s\n", proc, processor_name);
+
     createMpiEdgeType();
     
     handleUsage(argc);
@@ -140,8 +146,8 @@ int main(int argc, char *argv[]) {
     if (proc == 0) {
         g.read(argv[1]);
         readEndTime = MPI_Wtime();
-        printf("Graph loaded with %d vertices and %d edges in %f seconds\n",
-                g.nVerts, g.nEdges, readEndTime - startTime);
+        printf("P%d: Graph loaded with %d vertices and %d edges in %f seconds\n",
+                proc, g.nVerts, g.nEdges, readEndTime - startTime);
     }
     MPI_Bcast(&g.nVerts, 1, MPI_INT, 0, MPI_COMM_WORLD);
     MPI_Bcast(&g.nEdges, 1, MPI_INT, 0, MPI_COMM_WORLD);
@@ -149,11 +155,8 @@ int main(int argc, char *argv[]) {
     Forest forest(g.nVerts);
 
     int nLocalEdges = (g.nEdges + numProcs - 1) / numProcs;
-    if (proc == numProcs - 1) {
-        nLocalEdges = g.nEdges % nLocalEdges;
-    }
     Edge *localEdges = (Edge *) malloc(nLocalEdges * sizeof(Edge));
-    distributeEdges(g, localEdges, nLocalEdges);
+    distributeEdges(g, localEdges, &nLocalEdges);
 
     bool edgesFoundBefore = true;
     while (edgesFoundBefore) {
@@ -162,7 +165,7 @@ int main(int argc, char *argv[]) {
 
     if (proc == 0) {
         endTime = MPI_Wtime();
-        printf("Result computed in %f seconds\n", endTime - readEndTime);
+        printf("P%d: Result computed in %f seconds\n", proc, endTime - readEndTime);
     }
     
     MPI_Type_free(&mpiEdgeType);
