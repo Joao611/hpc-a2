@@ -60,17 +60,32 @@ struct Forest {
         int root2 = find(v2);
 
         // merge smaller rank root into the other root
-        if (ranks[root1] < ranks[root2]) {
-            parents[root1] = root2;
-            if (ranks[root2] == ranks[root1]) {
-                ranks[root2]++;
-            }
-        } else if (ranks[root2] < ranks[root1]) {
-            parents[root2] = root1;
-            if (ranks[root1] == ranks[root2]) {
-                ranks[root1]++;
-            }
+        if (root1 == root2) {
+            return;
         }
+
+        if (ranks[root1] < ranks[root2]) {
+            int temp = root1;
+            root1 = root2;
+            root2 = root1;
+        }
+
+        parents[root2] = root1;
+        if (ranks[root1] == ranks[root2]) {
+            ranks[root1]++;
+        }
+
+        // if (ranks[root1] < ranks[root2]) {
+        //     parents[root1] = root2;
+        //     if (ranks[root2] == ranks[root1]) {
+        //         ranks[root2]++;
+        //     }
+        // } else if (ranks[root2] < ranks[root1]) {
+        //     parents[root2] = root1;
+        //     if (ranks[root1] == ranks[root2]) {
+        //         ranks[root1]++;
+        //     }
+        // }
     }
 };
 
@@ -88,25 +103,42 @@ struct Graph {
         if (!ifs.is_open()) {
             cerr << "Could not open file " << filename << "\n";
             MPI_Finalize();
-            exit(0);
+            exit(1);
         }
         // Bypass comments/header.
         while (ifs.peek() == '%') {
             string line;
             getline(ifs, line);
         }
-        // ignore rows since it's a square matrix (rows = cols = number of Vertices)
-        ifs.ignore(numeric_limits<streamsize>::max(), ' ');
-        ifs >> nVerts >> nEdges;
-        edges = make_unique<Edge[]>(nEdges);
         string line;
+        getline(ifs, line);
+        istringstream iss(line);
+        // ignore rows since it's a square matrix (rows = cols = number of Vertices)
+        iss.ignore(numeric_limits<streamsize>::max(), ' ');
+        iss >> nVerts >> nEdges;
+        edges = make_unique<Edge[]>(nEdges);
         for (int i = 0; getline(ifs, line); i++) {
             istringstream iss(line);
             Edge e;
             iss >> e.from >> e.to >> e.weight;
+            // correct file's 1-indexing
+            // e.from--; e.to--;
             edges[i] = e;
         }
         ifs.close();
+    }
+
+    void printEdges() const {
+        for (int e = 0; e < nEdges; e++) {
+            cout << edges[e].from << '\t' << edges[e].to << '\t' << edges[e].weight << '\n';
+        }
+    }
+};
+
+// Minimum Spanning Forest.
+struct MSF : Graph {
+    MSF(int nVerts) : Graph(nVerts) {
+        edges = make_unique<Edge[]>(nVerts - 1); // max edges for MSF (fully connected case)
     }
 };
 
@@ -116,13 +148,13 @@ void handleUsage(int argc) {
             printf("Usage:\n\tmpirun [-np X] boruvka_mpi.out file\n");
         }
         MPI_Finalize();
-        exit(0);
+        exit(1);
     }
 }
 
 void distributeEdges(const Graph &g, Edge *localEdges, int *nLocalEdges) {
     printf("P%d: Scattering %d edges in %d chunks\n", proc, g.nEdges, *nLocalEdges);
-    MPI_Scatter(&(g.edges[0]), *nLocalEdges, mpiEdgeType,
+    MPI_Scatter(g.edges.get(), *nLocalEdges, mpiEdgeType,
             localEdges, *nLocalEdges, mpiEdgeType,
             0, MPI_COMM_WORLD);
     // If |E| isn't a multiple of numProcs, correct the number of edges for the last process.
@@ -131,36 +163,47 @@ void distributeEdges(const Graph &g, Edge *localEdges, int *nLocalEdges) {
     }
 }
 
+/**
+ * Gets all processes with the same closest edges,
+ * prevailing the ones with the lowest weight when in conflict.
+ * Processes send to each other the closest edges they obtained.
+ * All data sent to P0 in log2(n) steps.
+ */
 void syncClosestEdges(const Graph &g, unique_ptr<Edge[]> &closestEdges) {
+    printf("P%d: Syncing edges\n", proc);
     Edge *closestEdgesRecvd = new Edge[g.nVerts];
     // iteratively get all local edges to proc 0
     for (int iter = 1; iter < numProcs; iter *= 2) {
-        for (int currProc = 0; currProc < numProcs; currProc++) {
-            if (currProc % iter == 0) {
-                int dest = currProc - iter;
-                MPI_Send(&(closestEdges[0]), g.nVerts, mpiEdgeType, dest, 0, MPI_COMM_WORLD);
-            } else if (currProc % (2 * iter) == 0) {
-                int sender = currProc + iter;
-                if (sender < numProcs) {
-                    MPI_Recv(closestEdgesRecvd, g.nVerts, mpiEdgeType, sender, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
-                    // combine results with own closest edges
-                    for (int v = 0; v < g.nVerts; v++) {
-                        if (closestEdgesRecvd[v].weight < closestEdges[v].weight) {
-                            closestEdges[v] = closestEdgesRecvd[v];
-                        }
+        printf("P%d: Step %d\n", proc, iter);
+        if (proc % (2 * iter) == 0) {
+            int sender = proc + iter;
+            if (sender < numProcs) {
+                printf("P%d: Receiving from %d\n", proc, sender);
+                MPI_Recv(closestEdgesRecvd, g.nVerts, mpiEdgeType, sender, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+                // combine results with own closest edges
+                for (int v = 0; v < g.nVerts; v++) {
+                    if (closestEdgesRecvd[v].weight < closestEdges[v].weight) {
+                        closestEdges[v] = closestEdgesRecvd[v];
                     }
                 }
             }
+        } else if (proc % iter == 0) {
+            int dest = proc - iter;
+            printf("P%d: Sending to %d\n", proc, dest);
+            MPI_Send(closestEdges.get(), g.nVerts, mpiEdgeType, dest, 0, MPI_COMM_WORLD);
         }
     }
     // send global closest edges to all processes
-    MPI_Bcast(&(closestEdges[0]), g.nVerts, mpiEdgeType, 0, MPI_COMM_WORLD);
+    printf("P%d: Broadcasting edges\n", proc);
+    MPI_Bcast(closestEdges.get(), g.nVerts, mpiEdgeType, 0, MPI_COMM_WORLD);
     delete[] closestEdgesRecvd;
 }
 
 void printResults(const Graph &msf, const double readEndTime, const double endTime) {
+    printf("-------------------------------------\n");
     printf("P%d: Result computed in %f seconds\n", proc, endTime - readEndTime);
     printf("P%d: Minimum Spanning Forest (MSF) has %d vertices and %d edges\n", proc, msf.nVerts, msf.nEdges);
+    msf.printEdges();
     double weight = 0.0;
     for (int e = 0; e < msf.nEdges; e++) {
         weight += msf.edges[e].weight;
@@ -187,7 +230,6 @@ int main(int argc, char *argv[]) {
         startTime = MPI_Wtime();
     }
     Graph g;
-    Forest forest(g.nVerts);
 
     if (proc == 0) {
         g.read(argv[1]);
@@ -197,7 +239,8 @@ int main(int argc, char *argv[]) {
     }
     MPI_Bcast(&g.nVerts, 1, MPI_INT, 0, MPI_COMM_WORLD);
     MPI_Bcast(&g.nEdges, 1, MPI_INT, 0, MPI_COMM_WORLD);
-    Graph msf(g.nVerts); // minimum spanning forest
+    MSF msf(g.nVerts); // minimum spanning forest, only meant for proc 0
+    Forest forest(g.nVerts);
 
     int nLocalEdges = (g.nEdges + numProcs - 1) / numProcs;
     Edge *localEdges = new Edge[nLocalEdges];
@@ -216,8 +259,8 @@ int main(int argc, char *argv[]) {
                             forest.find(localEdges[e].to) };
             if (roots[0] != roots[1]) { // different tree
                 for (int r = 0; r < 2; r++) {
-                    if (localEdges[roots[r]].weight < closestEdges[roots[r]].weight) {
-                        closestEdges[roots[r]] = localEdges[roots[r]];
+                    if (localEdges[e].weight < closestEdges[roots[r]].weight) {
+                        closestEdges[roots[r]] = localEdges[e];
                     }
                 }
             }
@@ -233,10 +276,12 @@ int main(int argc, char *argv[]) {
                 edgesFound = true; // continue loop as we may find more
                 if (proc == 0) {
                     msf.edges[msf.nEdges] = e;
+                    msf.nEdges++;
                 }
                 forest.merge(e.from, e.to);
             }
         }
+        printf("P%d: MSF: %d edges\n", proc, msf.nEdges);
     }
 
     if (proc == 0) {
