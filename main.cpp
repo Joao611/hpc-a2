@@ -67,25 +67,13 @@ struct Forest {
         if (ranks[root1] < ranks[root2]) {
             int temp = root1;
             root1 = root2;
-            root2 = root1;
+            root2 = temp;
         }
 
         parents[root2] = root1;
         if (ranks[root1] == ranks[root2]) {
             ranks[root1]++;
         }
-
-        // if (ranks[root1] < ranks[root2]) {
-        //     parents[root1] = root2;
-        //     if (ranks[root2] == ranks[root1]) {
-        //         ranks[root2]++;
-        //     }
-        // } else if (ranks[root2] < ranks[root1]) {
-        //     parents[root2] = root1;
-        //     if (ranks[root1] == ranks[root2]) {
-        //         ranks[root1]++;
-        //     }
-        // }
     }
 };
 
@@ -122,7 +110,7 @@ struct Graph {
             Edge e;
             iss >> e.from >> e.to >> e.weight;
             // correct file's 1-indexing
-            // e.from--; e.to--;
+            e.from--; e.to--;
             edges[i] = e;
         }
         ifs.close();
@@ -203,7 +191,7 @@ void printResults(const Graph &msf, const double readEndTime, const double endTi
     printf("-------------------------------------\n");
     printf("P%d: Result computed in %f seconds\n", proc, endTime - readEndTime);
     printf("P%d: Minimum Spanning Forest (MSF) has %d vertices and %d edges\n", proc, msf.nVerts, msf.nEdges);
-    msf.printEdges();
+    // msf.printEdges();
     double weight = 0.0;
     for (int e = 0; e < msf.nEdges; e++) {
         weight += msf.edges[e].weight;
