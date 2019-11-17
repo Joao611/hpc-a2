@@ -32,7 +32,9 @@
 *.app
 
 # Large data
-data/
+data/*
+# this one is small enough as an example
+!data/nopoly.mtx
 
 # Misc
 .vscode
