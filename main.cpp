@@ -1,62 +1,101 @@
+#include <iostream>
+#include <fstream>
+#include <sstream>
+#include <limits> // std::numeric_limits
 #include "mpi.h"
-#include <stdio.h>
-#include <math.h>
 
-static double f(double a)
-{
-    return (4.0 / (1.0 + a*a));
+using namespace std;
+
+static int proc = -1, numProcs = -1;
+
+struct Edge {
+    int from;
+    int to;
+    double weight;
+};
+
+struct Forest {
+    
+};
+
+struct Graph {
+    int nVerts = -1;
+    int nEdges = -1;
+    Edge *edges = nullptr;
+
+    Graph(const string &filename) {
+        ifstream ifs(filename);
+        if (!ifs.is_open()) {
+            cerr << "Could not open file " << filename << "\n";
+            MPI_Finalize();
+            exit(0);
+        }
+        // Bypass comments/header.
+        while (ifs.peek() == '%') {
+            string line;
+            getline(ifs, line);
+        }
+        // ignore rows since it's a square matrix (rows = cols = number of Vertices)
+        ifs.ignore(numeric_limits<streamsize>::max(), ' ');
+        ifs >> nVerts >> nEdges;
+        string line;
+        while (getline(ifs, line)) {
+            istringstream iss(line);
+            Edge e;
+            iss >> e.from >> e.to >> e.weight;
+        }
+        ifs.close();
+    }
+};
+
+void handleUsage(int argc) {
+    if (argc != 2) {
+        if (proc == 0) {
+            printf("Usage:\n\tmpirun [-np X] boruvka_mpi.out file\n");
+        }
+        MPI_Finalize();
+        exit(0);
+    }
 }
 
-int main(int argc, char *argv[])
-{
-    int done = 0, n, myid, numprocs, i;
-    double PI25DT = 3.141592653589793238462643;
-    double mypi, pi, h, sum, x;
-    double startwtime = 0.0, endwtime;
+void distributeEdges() {
+
+}
+
+int main(int argc, char *argv[]) {
     int  namelen;
     char processor_name[MPI_MAX_PROCESSOR_NAME];
 
     MPI_Init(&argc, &argv);
-    MPI_Comm_size(MPI_COMM_WORLD, &numprocs);
-    MPI_Comm_rank(MPI_COMM_WORLD, &myid);
+    MPI_Comm_size(MPI_COMM_WORLD, &numProcs);
+    MPI_Comm_rank(MPI_COMM_WORLD, &proc);
     MPI_Get_processor_name(processor_name, &namelen);
+    printf("Process %d on %s\n", proc, processor_name);
+    
+    handleUsage(argc);
 
-    fprintf(stderr, "Process %d on %s\n", myid, processor_name);
-
-    n = 0;
-    while (!done) {
-        if (myid == 0) {
-            if (n == 0) {
-                n = 100; /* precision for first iteration */
-            } else {
-                n = 0;   /* second iteration: force stop */
-            }
-	        startwtime = MPI_Wtime();
-        }
-
-        MPI_Bcast(&n, 1, MPI_INT, 0, MPI_COMM_WORLD);
-        if (n == 0) {
-            done = 1;
-        } else {
-            h   = 1.0 / (double) n;
-            sum = 0.0;
-            for (i = myid + 1; i <= n; i += numprocs) {
-                x = h * ((double) i - 0.5);
-                sum += f(x);
-            }
-            mypi = h * sum;
-
-            MPI_Reduce(&mypi, & pi, 1, MPI_DOUBLE, MPI_SUM, 0, MPI_COMM_WORLD);
-
-            if (myid == 0) {
-                printf("pi is approximately %.16f, error is %.16f\n",
-                       pi, fabs(pi - PI25DT));
-                endwtime = MPI_Wtime();
-                printf("wall clock time = %f\n", endwtime - startwtime);
-	        }
-        }
+    double startTime = -1.0, readEndTime = -1.0, endTime = -1.0;
+    if (proc == 0) {
+        startTime = MPI_Wtime();
+    }
+    Graph g(argv[1]);
+    if (proc == 0) {
+        readEndTime = MPI_Wtime();
+        printf("Graph loaded with %d vertices and %d edges in %f seconds\n",
+                g.nVerts, g.nEdges, readEndTime - startTime);
     }
 
+    bool edgesFoundBefore = true;
+    while (edgesFoundBefore) {
+        edgesFoundBefore = false;
+        distributeEdges();
+    }
+
+    if (proc == 0) {
+        endTime = MPI_Wtime();
+        printf("Result computed in %f seconds\n", endTime - readEndTime);
+    }
+    
     MPI_Finalize();
 
     return 0;

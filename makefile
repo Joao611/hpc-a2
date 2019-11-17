@@ -1,2 +1,2 @@
 all:
-	mpic++ -O2 main.cpp -o main.out
+	mpic++ -O2 main.cpp -o boruvka_mpi.out

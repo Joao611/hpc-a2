@@ -7,7 +7,7 @@
 . /etc/profile.d/modules.sh
 module load openmpi/gcc/64
 
-APP=./main
+APP=./boruvka_mpi.out
 ARGS=""
 OMPI_OPTS="--mca btl ^usnic"
 
