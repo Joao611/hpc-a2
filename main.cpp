@@ -5,12 +5,12 @@
 #include <memory>
 #include <cstddef> // offsetof
 #include <vector>
-#include <filesystem>
+#include <experimental/filesystem>
 
 #include "mpi.h"
 
 using namespace std;
-namespace fs = std::filesystem;
+namespace fs = std::experimental::filesystem;
 
 #define SELF_ROOT -1
 
