@@ -35,6 +35,7 @@
 data/*
 # this one is small enough as an example
 !data/nopoly.mtx
+!data/Graph*
 
 # Misc
 .vscode
