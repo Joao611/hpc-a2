@@ -5,10 +5,12 @@
 #include <memory>
 #include <cstddef> // offsetof
 #include <vector>
+#include <filesystem>
 
 #include "mpi.h"
 
 using namespace std;
+namespace fs = std::filesystem;
 
 #define SELF_ROOT -1
 
@@ -207,11 +209,14 @@ int main(int argc, char *argv[]) {
     MPI_Comm_size(MPI_COMM_WORLD, &numProcs);
     MPI_Comm_rank(MPI_COMM_WORLD, &proc);
     MPI_Get_processor_name(processor_name, &namelen);
-    printf("Process %d on %s\n", proc, processor_name);
-
     createMpiEdgeType();
-    
     handleUsage(argc);
+
+    if (proc == 0) {
+        fs::path p = fs::current_path() / string(argv[1]);
+        cout << "Processor name: " << processor_name << "\n";
+        cout << "File: " << argv[1] << " - " << (double) fs::file_size(p) / 1024 / 1024  << "MB\n";
+    }
 
     double startTime = -1.0, readEndTime = -1.0, endTime = -1.0;
     if (proc == 0) {
