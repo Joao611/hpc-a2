@@ -214,7 +214,7 @@ int main(int argc, char *argv[]) {
     handleUsage(argc);
 
     if (proc == 0) {
-        fs::path p = fs::current_path() / string(argv[1]);
+        fs::path p = string(argv[1]);
         double fileSize = fs::file_size(p) / 1000; // KB
         cout << "Processor name: " << processor_name << "\n";
         cout << "File: " << argv[1] << " - ";
