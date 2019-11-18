@@ -5,6 +5,7 @@
 #include <memory>
 #include <cstddef> // offsetof
 #include <vector>
+/* DAS-4 has GCC 6.3.0, which doesn't support std::filesystem. */
 #include <experimental/filesystem>
 
 #include "mpi.h"
@@ -214,8 +215,15 @@ int main(int argc, char *argv[]) {
 
     if (proc == 0) {
         fs::path p = fs::current_path() / string(argv[1]);
+        double fileSize = fs::file_size(p) / 1000; // KB
         cout << "Processor name: " << processor_name << "\n";
-        cout << "File: " << argv[1] << " - " << (double) fs::file_size(p) / 1024 / 1024  << "MB\n";
+        cout << "File: " << argv[1] << " - ";
+        if (fileSize > 1000) {
+            cout << fileSize / 1000 << " MB\n";
+        } else {
+            cout << fileSize << " KB\n";
+        }
+        cout << "---------------------------------------\n";
     }
 
     double startTime = -1.0, readEndTime = -1.0, endTime = -1.0;
