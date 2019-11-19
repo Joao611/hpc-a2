@@ -216,7 +216,8 @@ int main(int argc, char *argv[]) {
     if (proc == 0) {
         fs::path p = string(argv[1]);
         double fileSize = fs::file_size(p) / 1000; // KB
-        cout << "Processor name: " << processor_name << "\n";
+        cout << "Name: " << processor_name << "\n";
+        cout << "Number of processors: " << numProcs << "\n";
         cout << "File: " << argv[1] << " - ";
         if (fileSize > 1000) {
             cout << fileSize / 1000 << " MB\n";
@@ -282,7 +283,9 @@ int main(int argc, char *argv[]) {
                 forest.merge(e.from, e.to);
             }
         }
-        printf("P%d: MSF: %d edges\n", proc, msf.nEdges);
+        if (proc == 0) {
+            printf("P%d: MSF: %d edges\n", proc, msf.nEdges);
+        }
     }
 
     if (proc == 0) {
@@ -292,7 +295,22 @@ int main(int argc, char *argv[]) {
     
     delete[] localEdges;
     MPI_Type_free(&mpiEdgeType);
-    MPI_Finalize();
+    
+    if (proc == 0) {
+        cout << "--------------------------------------------------\n";
+        cout << "You may see an MPI_ABORT error below. Not to fret, as with "
+            << "certain kinds of graphs the processes with rank != 0 may not notice "
+            << "a solution has been found and are forcefully terminated this way, "
+            << "as all required output has already been provided above.\n";
+    }
+    // the only main loop condition applying to non-P0's processes
+    if (edgesFound) {
+        // non-P0 processes may have not detected a solution was found and are
+        // blocked in a MPI_Send() to P0, so all processes are forcefully terminated
+        MPI_Abort(MPI_COMM_WORLD, 0);
+    } else {
+        MPI_Finalize();
+    }
 
     return 0;
 }
