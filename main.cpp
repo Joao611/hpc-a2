@@ -143,6 +143,35 @@ void handleUsage(int argc) {
     }
 }
 
+/**
+ * Initialize MPI and related variables and print output header.
+ */
+void init(int argc, char *argv[]) {
+    int  namelen;
+    char processor_name[MPI_MAX_PROCESSOR_NAME];
+
+    MPI_Init(&argc, &argv);
+    MPI_Comm_size(MPI_COMM_WORLD, &numProcs);
+    MPI_Comm_rank(MPI_COMM_WORLD, &proc);
+    MPI_Get_processor_name(processor_name, &namelen);
+    createMpiEdgeType();
+    handleUsage(argc);
+
+    if (proc == 0) {
+        fs::path p = string(argv[1]);
+        double fileSize = fs::file_size(p) / 1000; // KB
+        cout << "Name: " << processor_name << "\n";
+        cout << "Number of processors: " << numProcs << "\n";
+        cout << "File: " << argv[1] << " - ";
+        if (fileSize > 1000) {
+            cout << fileSize / 1000 << " MB\n";
+        } else {
+            cout << fileSize << " KB\n";
+        }
+        cout << "---------------------------------------\n";
+    }
+}
+
 void distributeEdges(const Graph &g, Edge *localEdges, int *nLocalEdges) {
     printf("P%d: Scattering %d edges in %d chunks\n", proc, g.nEdges, *nLocalEdges);
     MPI_Scatter(g.edges.get(), *nLocalEdges, mpiEdgeType,
@@ -198,30 +227,7 @@ void printResults(const Graph &msf, const double readEndTime, const double endTi
 }
 
 int main(int argc, char *argv[]) {
-    int  namelen;
-    char processor_name[MPI_MAX_PROCESSOR_NAME];
-
-    MPI_Init(&argc, &argv);
-    MPI_Comm_size(MPI_COMM_WORLD, &numProcs);
-    MPI_Comm_rank(MPI_COMM_WORLD, &proc);
-    MPI_Get_processor_name(processor_name, &namelen);
-    createMpiEdgeType();
-    handleUsage(argc);
-
-    if (proc == 0) {
-        fs::path p = string(argv[1]);
-        double fileSize = fs::file_size(p) / 1000; // KB
-        cout << "Name: " << processor_name << "\n";
-        cout << "Number of processors: " << numProcs << "\n";
-        cout << "File: " << argv[1] << " - ";
-        if (fileSize > 1000) {
-            cout << fileSize / 1000 << " MB\n";
-        } else {
-            cout << fileSize << " KB\n";
-        }
-        cout << "---------------------------------------\n";
-    }
-
+    init(argc, argv);
     double startTime = -1.0, readEndTime = -1.0, endTime = -1.0;
     if (proc == 0) {
         startTime = MPI_Wtime();
