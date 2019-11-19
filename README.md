@@ -3,8 +3,12 @@ Parallel Borůvka MST - Assignment 2 for Leiden University's High Performance Co
 
 ## Instructions
 
-Run the setup script each time you SSH to DAS-4:
-./setup_das4.sh
-
-To run in DAS-4, modify main.job (nodes, filename) and run the script:
+For an individual run in DAS-4, modify as desired and then run the following script.
+``` 
 ./run_das4.sh
+```
+
+For the automatic execution of the benchmark suite, run the following script.
+```
+./bench_das4.h
+```
