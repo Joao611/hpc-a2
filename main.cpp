@@ -1,11 +1,11 @@
 #include <iostream>
 #include <fstream>
 #include <sstream>
-#include <limits> // std::numeric_limits
+#include <limits> // has std::numeric_limits
 #include <memory>
-#include <cstddef> // offsetof
+#include <cstddef> // has offsetof()
 #include <vector>
-/* DAS-4 has GCC 6.3.0, which doesn't support std::filesystem. */
+/* DAS-4 currently has GCC 6.3.0, which doesn't support std::filesystem. */
 #include <experimental/filesystem>
 
 #include "mpi.h"
@@ -24,7 +24,6 @@ struct Edge {
     double weight;
 };
 
-// TODO: Might need MPI_Type_create_resized() to be able to send multiple structs
 void createMpiEdgeType() {
     const int nItems = 3;
     int blockLengths[nItems] = { 1, 1, 1 };
@@ -35,7 +34,8 @@ void createMpiEdgeType() {
     MPI_Type_commit(&mpiEdgeType);
 }
 
-/* Forest of vertices represented by a disjoint-set structure.
+/**
+ * Forest of vertices represented by a disjoint-set structure.
  * Each index is a vertice, and the value is its parent.
  * A vertice with value SELF_ROOT means it's its forest's root.
  * Rank is an optional property for each vertice to optimize performance.
@@ -96,7 +96,7 @@ struct Graph {
             MPI_Finalize();
             exit(1);
         }
-        // Bypass comments/header.
+        // Bypass MatrixMarket comments/header.
         while (ifs.peek() == '%') {
             string line;
             getline(ifs, line);
@@ -126,7 +126,9 @@ struct Graph {
     }
 };
 
-// Minimum Spanning Forest.
+/**
+ *  Minimum Spanning Forest.
+ */
 struct MSF : Graph {
     MSF(int nVerts) : Graph(nVerts) {
         edges = make_unique<Edge[]>(nVerts - 1); // max edges for MSF (fully connected case)
@@ -161,7 +163,7 @@ void init(int argc, char *argv[]) {
         fs::path p = string(argv[1]);
         double fileSize = fs::file_size(p) / 1000; // KB
         cout << "Name: " << processor_name << "\n";
-        cout << "Number of processors: " << numProcs << "\n";
+        cout << "Number of processes: " << numProcs << "\n";
         cout << "File: " << argv[1] << " - ";
         if (fileSize > 1000) {
             cout << fileSize / 1000 << " MB\n";
@@ -173,11 +175,14 @@ void init(int argc, char *argv[]) {
 }
 
 void distributeEdges(const Graph &g, Edge *localEdges, int *nLocalEdges) {
-    printf("P%d: Scattering %d edges in %d chunks\n", proc, g.nEdges, *nLocalEdges);
+    if (proc == 0) {
+        printf("P%d: Scattering %d edges in %d chunks\n", proc, g.nEdges, *nLocalEdges);
+    }
     MPI_Scatter(g.edges.get(), *nLocalEdges, mpiEdgeType,
             localEdges, *nLocalEdges, mpiEdgeType,
             0, MPI_COMM_WORLD);
-    // If |E| isn't a multiple of numProcs, correct the number of edges for the last process.
+    // If |E| isn't a multiple of numProcs or the number of local edges,
+    // correct the number of edges for the last process.
     if (proc == numProcs - 1 && g.nEdges % *nLocalEdges != 0) {
         *nLocalEdges = g.nEdges % *nLocalEdges;
     }
@@ -218,7 +223,7 @@ void printResults(const Graph &msf, const double readEndTime, const double endTi
     printf("-------------------------------------\n");
     printf("Result computed in %f seconds\n", endTime - readEndTime);
     printf("Minimum Spanning Forest (MSF) has %d vertices and %d edges\n", msf.nVerts, msf.nEdges);
-    // msf.printEdges();
+    // msf.printEdges(); // Uncomment for debugging purposes.
     double weight = 0.0;
     for (int e = 0; e < msf.nEdges; e++) {
         weight += msf.edges[e].weight;
@@ -285,7 +290,7 @@ int main(int argc, char *argv[]) {
             }
         }
         if (proc == 0) {
-            printf("P%d: MSF: %d edges\n", proc, msf.nEdges);
+            printf("P%d: MSF currently has %d edges\n", proc, msf.nEdges);
         }
     }
 
