@@ -161,15 +161,12 @@ void distributeEdges(const Graph &g, Edge *localEdges, int *nLocalEdges) {
  * All data sent to P0 in log2(n) steps.
  */
 void syncClosestEdges(const Graph &g, unique_ptr<Edge[]> &closestEdges) {
-    printf("P%d: Syncing edges\n", proc);
     Edge *closestEdgesRecvd = new Edge[g.nVerts];
     // iteratively get all local edges to proc 0
     for (int iter = 1; iter < numProcs; iter *= 2) {
-        printf("P%d: Step %d\n", proc, iter);
         if (proc % (2 * iter) == 0) {
             int sender = proc + iter;
             if (sender < numProcs) {
-                printf("P%d: Receiving from %d\n", proc, sender);
                 MPI_Recv(closestEdgesRecvd, g.nVerts, mpiEdgeType, sender, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
                 // combine results with own closest edges
                 for (int v = 0; v < g.nVerts; v++) {
@@ -180,26 +177,24 @@ void syncClosestEdges(const Graph &g, unique_ptr<Edge[]> &closestEdges) {
             }
         } else if (proc % iter == 0) {
             int dest = proc - iter;
-            printf("P%d: Sending to %d\n", proc, dest);
             MPI_Send(closestEdges.get(), g.nVerts, mpiEdgeType, dest, 0, MPI_COMM_WORLD);
         }
     }
     // send global closest edges to all processes
-    printf("P%d: Broadcasting edges\n", proc);
     MPI_Bcast(closestEdges.get(), g.nVerts, mpiEdgeType, 0, MPI_COMM_WORLD);
     delete[] closestEdgesRecvd;
 }
 
 void printResults(const Graph &msf, const double readEndTime, const double endTime) {
     printf("-------------------------------------\n");
-    printf("P%d: Result computed in %f seconds\n", proc, endTime - readEndTime);
-    printf("P%d: Minimum Spanning Forest (MSF) has %d vertices and %d edges\n", proc, msf.nVerts, msf.nEdges);
+    printf("Result computed in %f seconds\n", endTime - readEndTime);
+    printf("Minimum Spanning Forest (MSF) has %d vertices and %d edges\n", msf.nVerts, msf.nEdges);
     // msf.printEdges();
     double weight = 0.0;
     for (int e = 0; e < msf.nEdges; e++) {
         weight += msf.edges[e].weight;
     }
-    printf("P%d: MSF weight: %f\n", proc, weight);
+    printf("MSF weight: %f\n", weight);
 }
 
 int main(int argc, char *argv[]) {
