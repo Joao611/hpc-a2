@@ -1,6 +1,8 @@
 # hpc-a2
 Parallel Borůvka MST - Assignment 2 for Leiden University's High Performance Computing 1
 
+Grade: 9/10
+
 ## Instructions
 
 To compile, run the makefile.
